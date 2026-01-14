@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"regexp"
+	"strings"
 	"testing"
 
 	"github.com/go-openapi/testify/v2/assert"
@@ -36,4 +38,19 @@ func TestJasperTest(t *testing.T) {
 		}
 	}
 	fmt.Printf("Success: %d Error: %d\n", successCount, failureCount)
+}
+
+func TestCheckName(t *testing.T) {
+	checkList := []string{"isABC", "abcXisDfff", "isaaa", "isDefIs"}
+	var re = regexp.MustCompile(`^is([A-Z])`)
+	for _, result := range checkList {
+		if t, _ := regexp.MatchString("^is[A-Z]", result); t {
+			s := re.ReplaceAllString(result, `$1`)
+			s = strings.ToLower(s[0:1]) + s[1:]
+			fmt.Println("Found it ", result, "to", s)
+
+		} else {
+			fmt.Println("Found it not " + result)
+		}
+	}
 }
