@@ -3,6 +3,7 @@ package jaspergo
 import (
 	"encoding/xml"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -26,12 +27,34 @@ func ConvertFileToPath(file, destination string) error {
 	return convertFile(source, fileName, destination)
 }
 
+func ConvertReader(r io.Reader) (string, error) {
+	doc, err := xmlquery.Parse(r)
+	if err != nil {
+		return "", err
+	}
+	fb := doc.OutputXMLWithOptions(xmlquery.WithIndentation("\t"), xmlquery.WithEmptyTagSupport(),
+		xmlquery.WithoutPreserveSpace(), xmlquery.WithEmptyTagSupport())
+
+	return fb[39:], err
+}
+
 func convertFile(path, fileName, destination string) error {
 	m, err := LoadJasperReportsDomFromFile(path + string(os.PathSeparator) + fileName)
 	if err != nil {
 		fmt.Printf("Error loading '%s': %v\n", fileName, err)
 		return err
 	}
+	ConvertNode(fileName, m)
+	fb := []byte(m.OutputXMLWithOptions(xmlquery.WithIndentation("\t"), xmlquery.WithEmptyTagSupport(),
+		xmlquery.WithoutPreserveSpace(), xmlquery.WithEmptyTagSupport()))
+	err = os.WriteFile(destination+string(os.PathSeparator)+fileName, fb[39:], 0644)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func ConvertNode(fileName string, m *xmlquery.Node) error {
 	if m == nil {
 		return fmt.Errorf("DOM read and parsing error")
 	}
@@ -240,12 +263,7 @@ func convertFile(path, fileName, destination string) error {
 		}
 	})
 	cleanEmptyNodes(m)
-	fb := []byte(m.OutputXMLWithOptions(xmlquery.WithIndentation("\t"), xmlquery.WithEmptyTagSupport(),
-		xmlquery.WithoutPreserveSpace(), xmlquery.WithEmptyTagSupport()))
-	err = os.WriteFile(destination+string(os.PathSeparator)+fileName, fb[39:], 0644)
-	if err != nil {
-		return err
-	}
+
 	return nil
 }
 
