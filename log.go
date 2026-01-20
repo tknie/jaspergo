@@ -1,0 +1,123 @@
+/*
+* Copyright © 2018-2024 private, Darmstadt, Germany and/or its licensors
+*
+* SPDX-License-Identifier: Apache-2.0
+*
+*   Licensed under the Apache License, Version 2.0 (the "License");
+*   you may not use this file except in compliance with the License.
+*   You may obtain a copy of the License at
+*
+*       http://www.apache.org/licenses/LICENSE-2.0
+*
+*   Unless required by applicable law or agreed to in writing, software
+*   distributed under the License is distributed on an "AS IS" BASIS,
+*   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+*   See the License for the specific language governing permissions and
+*   limitations under the License.
+*
+ */
+package jaspergo
+
+import (
+	"encoding/json"
+	"fmt"
+	"os"
+
+	"github.com/tknie/log"
+	"github.com/tknie/xmlquery"
+	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
+)
+
+var level = zapcore.ErrorLevel
+
+func init() {
+	ed := os.Getenv("ENABLE_DEBUG")
+	switch ed {
+	case "1":
+		level = zapcore.DebugLevel
+	case "2":
+		level = zapcore.InfoLevel
+	}
+}
+
+func InitLogLevelWithFile(fileName string) (err error) {
+	p := os.Getenv("LOGPATH")
+	if p == "" {
+		p = "."
+	} else {
+		if _, err := os.Stat(p); os.IsNotExist(err) {
+			err := os.Mkdir(p, os.ModePerm)
+			if err != nil {
+				fmt.Printf("Error creating log path '%s': %v\n", p, err)
+				os.Exit(255)
+			}
+		}
+	}
+
+	name := p + string(os.PathSeparator) + fileName
+
+	rawJSON := []byte(`{
+		"level": "error",
+		"encoding": "console",
+		"outputPaths": [ "loadpicture.log"],
+		"errorOutputPaths": ["stderr"],
+		"encoderConfig": {
+		  "messageKey": "message",
+		  "levelKey": "level",
+		  "levelEncoder": "lowercase"
+		}
+	  }`)
+
+	var cfg zap.Config
+	if err := json.Unmarshal(rawJSON, &cfg); err != nil {
+		fmt.Println("Error initialize logging (json)")
+		os.Exit(255)
+	}
+	cfg.Level.SetLevel(level)
+	cfg.OutputPaths = []string{name}
+	logger, err := cfg.Build()
+	if err != nil {
+		fmt.Println("Error initialize logging (build)")
+		os.Exit(255)
+	}
+	defer logger.Sync()
+
+	sugar := logger.Sugar()
+
+	sugar.Infof("Start logging with level %s", level)
+	log.Log = sugar
+	log.SetDebugLevel(level == zapcore.DebugLevel)
+
+	return
+}
+
+func logNode(node *xmlquery.Node) {
+	xmlResult := generateXML(node)
+	log.Log.Debugf("%s", xmlResult)
+}
+func generateXML(node *xmlquery.Node) string {
+	out := ""
+	if node.Data == "" {
+		log.Log.Debugf("Root node: %v", node == docNode)
+	} else if node.Data[0] == 10 {
+		return ""
+	} else {
+		out += fmt.Sprintf("<%s", node.Data)
+		for _, a := range node.Attr {
+			out += fmt.Sprintf(" %s=%s", a.Name.Local, a.Value)
+		}
+		out += ">\n"
+	}
+	for childNode := node.FirstChild; childNode != nil; childNode = childNode.NextSibling {
+		if childNode == nil {
+			fmt.Println("Child node empty for", node.Data)
+			continue
+		}
+		out += generateXML(childNode)
+	}
+	if node.Data != "" {
+		out += fmt.Sprintf("</%s>\n", node.Data)
+	}
+	return out
+}
