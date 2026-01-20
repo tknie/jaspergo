@@ -1,6 +1,7 @@
 package jaspergo
 
 import (
+	"encoding/xml"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -16,6 +17,8 @@ import (
 
 var re = regexp.MustCompile(`^is([A-Z])`)
 var docNode *xmlquery.Node
+var expressionList = []string{"groupExpression", "bucketExpression", "variableExpression",
+	"datasetParameterExpression", "measureExpression", "imageExpression", "textFieldExpression"}
 
 func ConvertFileToPath(file, destination string) error {
 	source := filepath.Dir(file)
@@ -62,15 +65,50 @@ func convertFile(path, fileName, destination string) error {
 		}
 	}
 	changeBooleanPrefix(jasperReprt)
-	xmlquery.FindEach(m, "//crosstab", workConvertElements)
-	xmlquery.FindEach(m, "//textField", workConvertElements)
-	xmlquery.FindEach(m, "//staticText", workConvertElements)
-	xmlquery.FindEach(m, "//subreport", workConvertElements)
-	xmlquery.FindEach(m, "//line", workConvertElements)
+
+	xmlquery.FindEach(m, "//c:label", func(i int, label *xmlquery.Node) {
+		label.Data = "labelTextField"
+		label.NamespaceURI = ""
+		label.Prefix = ""
+		textField := label.SelectElement("textField")
+		if textField != nil {
+			xmlquery.MoveChildNodes(textField, label)
+		}
+		reportElement := label.SelectElement("reportElement")
+		if reportElement != nil {
+			label.Attr = reportElement.Attr
+			xmlquery.RemoveFromTree(reportElement)
+		}
+		textElement := label.SelectElement("textElement")
+		if textElement != nil {
+			label.Attr = append(label.Attr, textElement.Attr...)
+			font := textElement.SelectElement("font")
+			label.Attr = append(label.Attr, font.Attr...)
+			xmlquery.RemoveFromTree(textElement)
+		}
+		xmlquery.RemoveFromTree(textField)
+		changeBooleanPrefix(label)
+	})
+	xmlquery.FindEach(m, "//c:icon", func(i int, icon *xmlquery.Node) {
+		icon.Data = "iconTextField"
+		icon.Prefix = ""
+		textField := icon.SelectElement("textField")
+		if textField != nil {
+			icon.Attr = textField.Attr
+			xmlquery.MoveChildNodes(textField, icon)
+			xmlquery.RemoveFromTree(textField)
+		}
+		reportElement := icon.SelectElement("reportElement")
+		if reportElement != nil {
+			icon.Attr = append(icon.Attr, reportElement.Attr...)
+			xmlquery.RemoveFromTree(reportElement)
+		}
+
+	})
+	workConverter(m)
 	xmlquery.FindEach(m, "//crosstabRowHeader", removeCrosstabRowHeaderNode)
 	xmlquery.FindEach(m, "//crosstabTotalRowHeader", removeCrosstabTotalRowHeader)
 
-	xmlquery.FindEach(m, "//componentElement", workConvertElements)
 	xmlquery.FindEach(m, "//crosstabCell", func(i int, crosstabCell *xmlquery.Node) {
 		crosstabCell.Data = "cell"
 		for node := crosstabCell.FirstChild; node != nil; node = node.NextSibling {
@@ -101,11 +139,10 @@ func convertFile(path, fileName, destination string) error {
 		subDataset.Data = "dataset"
 	})
 
-	expressionList := []string{"groupExpression", "bucketExpression", "variableExpression",
-		"datasetParameterExpression", "measureExpression"}
 	for _, e := range expressionList {
 		xmlquery.FindEach(m, "//"+e, func(i int, expression *xmlquery.Node) {
 			expression.Data = "expression"
+			expression.FirstChild.Type = xmlquery.CharDataNode
 		})
 	}
 	xmlquery.FindEach(m, "//group", func(i int, group *xmlquery.Node) {
@@ -115,14 +152,7 @@ func convertFile(path, fileName, destination string) error {
 	xmlquery.FindEach(m, "//datasetParameter", func(i int, parameter *xmlquery.Node) {
 		parameter.Data = "parameter"
 	})
-	xmlquery.FindEach(m, "//pageHeader", removeBandNode)
-	xmlquery.FindEach(m, "//title", removeBandNode)
-	xmlquery.FindEach(m, "//summary", removeBandNode)
-	xmlquery.FindEach(m, "//lastPageFooter", removeBandNode)
-	xmlquery.FindEach(m, "//pageFooter", removeBandNode)
-	xmlquery.FindEach(m, "//columnHeader", removeBandNode)
-	xmlquery.FindEach(m, "//columnFooter", removeBandNode)
-	// xmlquery.FindEach(m, "//groupFooter", removeBandNode)
+	removeBand(m)
 
 	xmlquery.FindEach(m, "//band", removeNamedSubNodes)
 	xmlquery.FindEach(m, "//c:table", func(i int, cTable *xmlquery.Node) {
@@ -141,12 +171,61 @@ func convertFile(path, fileName, destination string) error {
 			node.Prefix = ""
 		})
 	})
+	xmlquery.FindEach(m, "//c:table", func(i int, cList *xmlquery.Node) {
+		cList.Prefix = ""
+		cList.Data = "component"
+		cList.SetAttr("kind", "table")
+	})
+	xmlquery.FindEach(m, "//c:listContents", func(i int, cList *xmlquery.Node) {
+		cList.Prefix = ""
+		cList.Data = "contents"
+	})
+
+	xmlquery.FindEach(m, "//c:Code128", barcode4j)
+	xmlquery.FindEach(m, "//c:QRCode", barcode4j)
+
+	xmlquery.FindEach(m, "//jr:list", func(i int, cList *xmlquery.Node) {
+		cList.Prefix = ""
+		cList.Data = "component"
+		cList.Attr = filterAttr(cList.Attr, "list")
+	})
+	xmlquery.FindEach(m, "//jr:listContents", func(i int, cList *xmlquery.Node) {
+		cList.Prefix = ""
+		cList.Data = "contents"
+		cList.Attr = filterAttr(cList.Attr, "")
+	})
+	xmlquery.FindEach(m, "//c:list", func(i int, cList *xmlquery.Node) {
+		cList.Prefix = ""
+		cList.Data = "component"
+		cList.Attr = filterAttr(cList.Attr, "list")
+	})
+	xmlquery.FindEach(m, "//c:tableFooter", func(i int, cList *xmlquery.Node) {
+		cList.Prefix = ""
+		cList.Data = "tableFooter"
+	})
+	xmlquery.FindEach(m, "//c:columnHeader", func(i int, cList *xmlquery.Node) {
+		cList.Prefix = ""
+		cList.Data = "tableFooter"
+	})
+	xmlquery.FindEach(m, "//c:columnGroup", func(i int, cList *xmlquery.Node) {
+		cList.Prefix = ""
+		cList.Data = "column"
+		cList.SetAttr("kind", "single")
+	})
+	xmlquery.FindEach(m, "//c:iconLabel", adaptIcons)
+	// xmlquery.FindEach(m, "//c:icon", adaptIcons)
 	xmlquery.FindEach(m, "//property", func(i int, property *xmlquery.Node) {
 		changeBooleanPrefix(property)
 		for _, attr := range property.Attr {
 			if attr.Name.Local == "name" {
+				switch {
+				case strings.HasPrefix(attr.Value, "com.jaspersoft.studio.unit."):
+					xmlquery.RemoveFromTree(property)
+					return
+				}
 				switch attr.Value {
-				case "com.jaspersoft.studio.data.defaultdataadapter",
+				case "com.jaspersoft.studio.unit.",
+					"com.jaspersoft.studio.data.defaultdataadapter",
 					"com.jaspersoft.studio.unit.height", "com.jaspersoft.studio.unit.width":
 					xmlquery.RemoveFromTree(property)
 					return
@@ -162,13 +241,77 @@ func convertFile(path, fileName, destination string) error {
 	})
 	cleanEmptyNodes(m)
 	fb := []byte(m.OutputXMLWithOptions(xmlquery.WithIndentation("\t"), xmlquery.WithEmptyTagSupport(),
-		xmlquery.WithoutPreserveSpace()))
-	// fb := []byte(m.OutputXML(false))
-	err = os.WriteFile(destination+string(os.PathSeparator)+fileName, fb, 0644)
+		xmlquery.WithoutPreserveSpace(), xmlquery.WithEmptyTagSupport()))
+	err = os.WriteFile(destination+string(os.PathSeparator)+fileName, fb[39:], 0644)
 	if err != nil {
 		return err
 	}
 	return nil
+}
+
+func barcode4j(i int, node *xmlquery.Node) {
+	saveName := node.Data
+	node.Data = "component"
+	node.Prefix = ""
+	node.Attr = filterAttr(node.Attr, "barcode4j:"+saveName)
+	ce := node.SelectElement("c:codeExpression")
+	ce.Data = "codeExpression"
+	ce.Prefix = ""
+}
+
+func filterAttr(attr []xmlquery.Attr, kind string) []xmlquery.Attr {
+	saveAttr := attr
+	attr = []xmlquery.Attr{}
+	if kind != "" {
+		attr = append(attr, xmlquery.Attr{Name: xml.Name{Local: "kind"}, Value: kind})
+	}
+	for _, a := range saveAttr {
+		if a.NamespaceURI != "xmlns" && a.NamespaceURI != "xsi" &&
+			a.Name.Local != "schemaLocation" {
+			attr = append(attr, a)
+		}
+	}
+	return attr
+}
+
+func workConverter(node *xmlquery.Node) {
+	xmlquery.FindEach(node, "//crosstab", workConvertElements)
+	xmlquery.FindEach(node, "//textField", workConvertElements)
+	xmlquery.FindEach(node, "//staticText", workConvertElements)
+	xmlquery.FindEach(node, "//subreport", workConvertElements)
+	xmlquery.FindEach(node, "//line", workConvertElements)
+	xmlquery.FindEach(node, "//componentElement", workConvertElements)
+	xmlquery.FindEach(node, "//break", workConvertElements)
+	xmlquery.FindEach(node, "//image", workConvertElements)
+	xmlquery.FindEach(node, "//frame", workConvertElements)
+
+}
+
+func adaptIcons(i int, cList *xmlquery.Node) {
+	saveData := cList.Data
+	cList.Prefix = ""
+	cList.Data = "component"
+	saveAttr := cList.Attr
+	cList.Attr = []xmlquery.Attr{}
+	cList.SetAttr("kind", saveData)
+	for _, a := range saveAttr {
+		if a.NamespaceURI != "xmlns" && a.NamespaceURI != "xsi" &&
+			a.Name.Local != "schemaLocation" {
+			cList.SetAttr(a.Name.Local, a.Value)
+		}
+	}
+}
+func removeBand(node *xmlquery.Node) {
+	xmlquery.FindEach(node, "//pageHeader", removeBandNode)
+	xmlquery.FindEach(node, "//title", removeBandNode)
+	xmlquery.FindEach(node, "//noData", removeBandNode)
+	xmlquery.FindEach(node, "//summary", removeBandNode)
+	xmlquery.FindEach(node, "//lastPageFooter", removeBandNode)
+	xmlquery.FindEach(node, "//pageFooter", removeBandNode)
+	xmlquery.FindEach(node, "//columnHeader", removeBandNode)
+	xmlquery.FindEach(node, "//columnFooter", removeBandNode)
+	// xmlquery.FindEach(m, "//groupFooter", removeBandNode)
+
 }
 
 func removeNamedSubNodes(i int, band *xmlquery.Node) {
@@ -259,7 +402,6 @@ func removeBandNode(i int, node *xmlquery.Node) {
 	cleanAllEmptySubNodes(node)
 	if node.Data == "pageHeader" {
 		logNode(docNode)
-		log.Log.Debugf("XML:" + node.OutputXML(true))
 	}
 
 }
@@ -401,8 +543,35 @@ func workConvertElements(i int, n *xmlquery.Node) {
 		cleanAllEmptySubNodes(box)
 
 	}
+
 	changeBooleanPrefix(n)
 	cleanAllEmptySubNodes(n)
+	tempChilds := make([]*xmlquery.Node, 0)
+	for child := n.FirstChild; child != nil; child = child.NextSibling {
+		tempChilds = append(tempChilds, child)
+	}
+
+	var sortedNodes = "paragraph,text,expression,property,box"
+	slices.SortFunc(tempChilds, func(a, b *xmlquery.Node) int {
+		ai := strings.Index(sortedNodes, a.Data)
+		bi := strings.Index(sortedNodes, b.Data)
+		return ai - bi
+	})
+	l := len(tempChilds)
+	for i, node := range tempChilds {
+		if i == 0 {
+			n.FirstChild = node
+			node.PrevSibling = nil
+		} else {
+			node.PrevSibling = tempChilds[i-1]
+		}
+		if i+1 < l {
+			node.NextSibling = tempChilds[i+1]
+			n.LastChild = tempChilds[i+1]
+		} else {
+			node.NextSibling = nil
+		}
+	}
 }
 
 func changeBooleanPrefix(element *xmlquery.Node) {
