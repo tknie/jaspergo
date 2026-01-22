@@ -1,4 +1,6 @@
 output/
 bin/
+tests6/
+tests7/
 *.log
 *.swp
