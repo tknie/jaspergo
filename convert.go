@@ -1,3 +1,13 @@
+/*
+* Copyright 2026 Thorsten A. Knieling
+*
+* Licensed under the Apache License, Version 2.0 (the "License");
+* you may not use this file except in compliance with the License.
+* You may obtain a copy of the License at
+*
+*    http://www.apache.org/licenses/LICENSE-2.0
+*
+ */
 package jaspergo
 
 import (
@@ -21,25 +31,32 @@ var docNode *xmlquery.Node
 var expressionList = []string{"groupExpression", "bucketExpression", "variableExpression",
 	"datasetParameterExpression", "measureExpression", "imageExpression", "textFieldExpression"}
 
+// ConvertFileToPath converts a JRXML v6 file into a JRXML v7 file stored in destination path
 func ConvertFileToPath(file, destination string) error {
 	source := filepath.Dir(file)
 	fileName := filepath.Base(file)
 	return convertFile(source, fileName, destination)
 }
 
-func ConvertReader(r io.Reader) (string, error) {
+// ConvertReader converts a JRXML v6 from reader and returns the converted content as string
+// The fileReference is as reference used inside the JRXML file working with references.
+func ConvertReader(fileReference string, r io.Reader) (string, error) {
 	doc, err := xmlquery.Parse(r)
+	if err != nil {
+		return "", err
+	}
+	err = ConvertNode(fileReference, doc)
 	if err != nil {
 		return "", err
 	}
 	fb := doc.OutputXMLWithOptions(xmlquery.WithIndentation("\t"), xmlquery.WithEmptyTagSupport(),
 		xmlquery.WithoutPreserveSpace(), xmlquery.WithEmptyTagSupport())
 
-	return fb[39:], err
+	return fb[39:], nil
 }
 
 func convertFile(path, fileName, destination string) error {
-	m, err := LoadJasperReportsDomFromFile(path + string(os.PathSeparator) + fileName)
+	m, err := loadJasperReportsDomFromFile(path + string(os.PathSeparator) + fileName)
 	if err != nil {
 		fmt.Printf("Error loading '%s': %v\n", fileName, err)
 		return err
@@ -54,6 +71,9 @@ func convertFile(path, fileName, destination string) error {
 	return nil
 }
 
+// ConvertNode converts a JRXML v6 DOM node into a JRXML v7 DOM node
+// The fileName is used as reference inside the JRXML file working with references.
+// If parsing is fail an error is returned.
 func ConvertNode(fileName string, m *xmlquery.Node) error {
 	if m == nil {
 		return fmt.Errorf("DOM read and parsing error")
@@ -334,49 +354,12 @@ func removeBand(node *xmlquery.Node) {
 
 func removeNamedSubNodes(i int, band *xmlquery.Node) {
 	changeBooleanPrefix(band)
-	// removeSubNode(band, "property")
 	cleanAllEmptySubNodes(band)
 }
 
-func removeSubNode(mainNode *xmlquery.Node, removeNodeName string) {
-	var lastNode *xmlquery.Node
-	log.Log.Debugf("Remove %s from %s", removeNodeName, mainNode.Data)
-	log.Log.Debugf("Nodes: %d", len(mainNode.ChildNodes()))
-	for node := mainNode.FirstChild; node != nil; node = node.NextSibling {
-		log.Log.Debugf("Checking %s %p", string(node.Data), node)
-		if node.Data == removeNodeName || node.Data[0] == 10 {
-			if node.Data == removeNodeName {
-				node.Data = string([]byte{10})
-			}
-			log.Log.Debugf("Removing %s %p", string(node.Data), lastNode)
-			if lastNode == nil {
-				mainNode.FirstChild = node.NextSibling
-				node.NextSibling.PrevSibling = nil
-			} else {
-				lastNode.NextSibling = node.NextSibling
-				node.PrevSibling = lastNode
-			}
-			if node.NextSibling == nil {
-				mainNode.LastChild = lastNode
-			}
-			node.PrevSibling = nil
-			node.Parent = nil
-		} else {
-			if lastNode == nil {
-				mainNode.FirstChild = node
-			}
-			lastNode = node
-			if node.NextSibling == nil {
-				mainNode.LastChild = lastNode
-			}
-		}
-	}
-	log.Log.Debugf("End Nodes: %d", len(mainNode.ChildNodes()))
-	for child := mainNode.FirstChild; child != nil; child = child.NextSibling {
-		log.Log.Debugf("%s/%s Final: %s", mainNode.Parent.Data, mainNode.Data, child.Data)
-	}
-}
-
+// ConvertDirectoryToPath converts all JRXML v6 files in a directory into JRXML v7 files
+// stored in destination path preserving the directory structure.
+// If parsing is fail an error is returned.
 func ConvertDirectoryToPath(path, destination string) error {
 	entries, err := os.ReadDir(path)
 	if err != nil {
@@ -408,13 +391,6 @@ func removeBandNode(i int, node *xmlquery.Node) {
 	band := node.SelectElement("band")
 	node.Attr = band.Attr
 	xmlquery.MoveChildNodes(band, node)
-	// for _, n := range band.ChildNodes() {
-	// 	if n.Data != "property" && n.Data[0] != 10 {
-	// 		fmt.Println("PP", node.Data, n.Data)
-	// 		// xmlquery.AddChild(node, n)
-	// 		// xmlquery.AddImmediateSibling(node, n)
-	// 	}
-	// }
 	log.Log.Debugf("Remove band from %s", node.Data)
 	xmlquery.RemoveFromTree(band)
 	cleanAllEmptySubNodes(node)
@@ -483,11 +459,6 @@ func workConvertElements(i int, n *xmlquery.Node) {
 	}
 	if reportElement != nil {
 		xmlquery.MoveChildNodes(reportElement, n)
-		// for childNodes := reportElement.FirstChild; childNodes != nil; childNodes = childNodes.NextSibling {
-		// 	if childNodes.Data[0] != 10 {
-		// 		xmlquery.AddSibling(n, childNodes)
-		// 	}
-		// }
 	}
 	previous := reportElement
 	textFieldExpression := n.SelectElement("textFieldExpression")

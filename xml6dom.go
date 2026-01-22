@@ -1,3 +1,13 @@
+/*
+* Copyright 2026 Thorsten A. Knieling
+*
+* Licensed under the Apache License, Version 2.0 (the "License");
+* you may not use this file except in compliance with the License.
+* You may obtain a copy of the License at
+*
+*    http://www.apache.org/licenses/LICENSE-2.0
+*
+ */
 package jaspergo
 
 import (
@@ -9,7 +19,7 @@ import (
 	"github.com/tknie/xmlquery"
 )
 
-func LoadJasperReportsDomFromFile(path string) (*xmlquery.Node, error) {
+func loadJasperReportsDomFromFile(path string) (*xmlquery.Node, error) {
 	fmt.Println("Load and parsing JRXML ...", path)
 	f, err := os.Open(path)
 	if err != nil {
@@ -34,25 +44,4 @@ func cleanEmptyNodes(m *xmlquery.Node) {
 
 func cleanAllEmptySubNodes(element *xmlquery.Node) {
 	log.Log.Debugf("Clean all empty sub nodes %s", element.Data)
-	// var lastNode *xmlquery.Node
-	// for node := element.FirstChild; node != nil; node = node.NextSibling {
-	// 	if node.Data[0] == 10 {
-	// 		if node == element.FirstChild || lastNode == nil {
-	// 			element.FirstChild = node.NextSibling
-	// 			node.NextSibling.PrevSibling = nil
-	// 			node.Parent = nil
-	// 			node.PrevSibling = nil
-	// 		} else {
-	// 			lastNode.NextSibling = node.NextSibling
-	// 			if node.NextSibling != nil {
-	// 				node.NextSibling.PrevSibling = lastNode
-	// 			}
-	// 			node.Parent = nil
-	// 			node.PrevSibling = nil
-	// 		}
-	// 	} else {
-	// 		lastNode = node
-	// 	}
-	// }
-	// element.LastChild = lastNode
 }
