@@ -34,3 +34,5 @@ var r io.Reader
 s,_:=ConvertReader("OrphanFooterReport.36.jrxml", r)
 ... work on output s
 ```
+
+API documentation can be found here: https://godoc.org/github.com/tknie/jaspergo
